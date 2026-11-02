@@ -6,3 +6,6 @@ Desktop.ini
 # Temporary files
 *.tmp
 *.bak
+
+# Viewer counter secrets (API key)
+overlays/viewers.config.js

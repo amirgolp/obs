@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600&display=swap">
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 18px;
+    box-sizing: border-box;
+    font-family: "Montserrat", "Noto Sans", sans-serif;
+    color: #f4f4f5;
+  }
+  #bar {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+  }
+  .badge {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    transition: opacity 0.4s;
+  }
+  .badge.shown { display: flex; }
+  .badge.offline { opacity: 0.35; }
+  .badge svg { width: 18px; height: 18px; flex: none; }
+  .badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #e11d48;
+    box-shadow: 0 0 6px rgba(225, 29, 72, 0.9);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .badge.offline .dot { animation: none; background: #71717a; box-shadow: none; }
+  .sep {
+    width: 1px;
+    height: 18px;
+    background: rgba(225, 29, 72, 0.55);
+  }
+  @keyframes pulse {
+    50% { opacity: 0.35; }
+  }
+</style>
+</head>
+<body>
+<div id="bar">
+  <div class="badge" id="twitch" title="Twitch">
+    <svg viewBox="0 0 24 24" fill="#9146ff"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></svg>
+    <span class="dot"></span><span class="n">0</span>
+  </div>
+  <div class="badge" id="kick" title="Kick">
+    <svg viewBox="0 0 24 24" fill="#53fc18"><path d="M2 2h6v6h2V6h2V4h2V2h6v6h-2v2h-2v4h2v2h2v6h-6v-2h-2v-2h-2v-2H8v6H2z"/></svg>
+    <span class="dot"></span><span class="n">0</span>
+  </div>
+  <div class="badge" id="youtube" title="YouTube">
+    <svg viewBox="0 0 24 24"><rect x="1" y="4.5" width="22" height="15" rx="4.5" fill="#ff0033"/><path d="M10 8.75v6.5L15.5 12z" fill="#fff"/></svg>
+    <span class="dot"></span><span class="n">0</span>
+  </div>
+  <div class="sep" id="sep"></div>
+  <div class="badge" id="total" title="Total">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#f4f4f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7.5 11-7.5S23 12 23 12s-4 7.5-11 7.5S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+    <span class="n">0</span>
+  </div>
+</div>
+
+<!-- Channel names and API key live in viewers.config.js (git-ignored).
+     Copy viewers.config.example.js to viewers.config.js and fill it in. -->
+<script src="viewers.config.js"></script>
+<script>
+  const cfg = Object.assign({
+    TWITCH_CHANNEL: "",
+    KICK_CHANNEL: "",
+    YOUTUBE_CHANNEL_ID: "",
+    YOUTUBE_API_KEY: "",
+    SHOW_OFFLINE: false,
+    SHOW_TOTAL: true,
+    POLL_SECONDS: 30,
+    YOUTUBE_POLL_SECONDS: 60,
+  }, window.VIEWERS_CONFIG || {});
+
+  // null = offline / unknown, number = live viewer count
+  const counts = { twitch: null, kick: null, youtube: null };
+  const enabled = {
+    twitch: !!cfg.TWITCH_CHANNEL,
+    kick: !!cfg.KICK_CHANNEL,
+    youtube: !!(cfg.YOUTUBE_CHANNEL_ID && cfg.YOUTUBE_API_KEY),
+  };
+
+  function fmt(n) {
+    if (n >= 10000) return (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, "") + "K";
+    return n.toLocaleString("en-US");
+  }
+
+  function render() {
+    let total = 0, live = 0;
+    for (const p of Object.keys(counts)) {
+      const el = document.getElementById(p);
+      const n = counts[p];
+      const isLive = n !== null;
+      const show = enabled[p] && (isLive || cfg.SHOW_OFFLINE);
+      el.classList.toggle("shown", show);
+      el.classList.toggle("offline", !isLive);
+      el.querySelector(".n").textContent = isLive ? fmt(n) : "OFF";
+      if (isLive) { total += n; live++; }
+    }
+    const showTotal = cfg.SHOW_TOTAL && live > 1;
+    document.getElementById("total").classList.toggle("shown", showTotal);
+    document.getElementById("sep").style.display = showTotal ? "block" : "none";
+    document.querySelector("#total .n").textContent = fmt(total);
+  }
+
+  // Twitch via decapi.me (no auth needed). Returns a number or "<name> is offline".
+  async function pollTwitch() {
+    const r = await fetch(`https://decapi.me/twitch/viewercount/${encodeURIComponent(cfg.TWITCH_CHANNEL)}`);
+    const t = (await r.text()).trim();
+    counts.twitch = /^\d+$/.test(t) ? Number(t) : null;
+  }
+
+  // Kick public channel endpoint. livestream is null when offline.
+  async function pollKick() {
+    const r = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(cfg.KICK_CHANNEL)}`,
+      { headers: { Accept: "application/json" } });
+    if (!r.ok) throw new Error(`kick ${r.status}`);
+    const d = await r.json();
+    const ls = d.livestream;
+    counts.kick = ls && ls.is_live ? Number(ls.viewer_count) || 0 : null;
+  }
+
+  // YouTube Data API v3. Looks at the newest uploads (live streams appear there)
+  // and picks the one that is currently live. Costs 2 quota units per poll.
+  async function pollYouTube() {
+    const key = encodeURIComponent(cfg.YOUTUBE_API_KEY);
+    const uploads = "UU" + cfg.YOUTUBE_CHANNEL_ID.slice(2);
+    const api = "https://www.googleapis.com/youtube/v3";
+    const pl = await (await fetch(`${api}/playlistItems?part=contentDetails&maxResults=5&playlistId=${uploads}&key=${key}`)).json();
+    if (pl.error) throw new Error(pl.error.message);
+    const ids = (pl.items || []).map(i => i.contentDetails.videoId).join(",");
+    if (!ids) { counts.youtube = null; return; }
+    const v = await (await fetch(`${api}/videos?part=liveStreamingDetails&id=${ids}&key=${key}`)).json();
+    if (v.error) throw new Error(v.error.message);
+    const liveVid = (v.items || []).find(i => {
+      const l = i.liveStreamingDetails;
+      return l && l.actualStartTime && !l.actualEndTime;
+    });
+    counts.youtube = liveVid ? Number(liveVid.liveStreamingDetails.concurrentViewers || 0) : null;
+  }
+
+  // On error keep the last known value so a single failed request doesn't flicker.
+  function loop(name, fn, seconds) {
+    if (!enabled[name]) return;
+    const run = async () => {
+      try { await fn(); } catch (e) { console.warn(`[viewers] ${name}:`, e.message || e); }
+      render();
+      setTimeout(run, seconds * 1000);
+    };
+    run();
+  }
+
+  render();
+  loop("twitch", pollTwitch, cfg.POLL_SECONDS);
+  loop("kick", pollKick, cfg.POLL_SECONDS);
+  loop("youtube", pollYouTube, cfg.YOUTUBE_POLL_SECONDS);
+</script>
+</body>
+</html>
